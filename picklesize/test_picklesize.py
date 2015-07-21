@@ -121,6 +121,10 @@ class TestEstimator(unittest.TestCase):
         self.compare(np.ones((10,10))[0:5,:])
         self.compare(np.ones((10,10))[:,0:5])
 
+    def test_numpy_multiple_arrays(self):
+        import numpy as np
+        self.compare([np.ones((10,10)), np.ones((10,10))])
+
 class OldStyle_WithAttribs():
     def __init__(self):
         self.a = 12

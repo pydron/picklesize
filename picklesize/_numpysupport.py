@@ -17,15 +17,30 @@ try:
             size = 5 + n
         # We assume that the string would be unique. This is quite likely
         # Since numpy probably creates it on the fly.
-        size += est._memorize(id(object()))
+        dummy = object()
+        size += est._memorize(dummy, id(dummy))
         
         placeholder = _picklesize.PlaceHolder(size)
         
         reconstruct = numpy.core.multiarray._reconstruct
-        args = (numpy.ndarray, (0,), 'b')
-        state = (1, obj.shape, obj.dtype, numpy.isfortran(obj), placeholder)
         
-        return est.save_reduce(reconstruct, args, state=state, obj=obj)
+        # This is almost identical to::
+        #   zero_tuple = (0, )
+        # With one difference, python 2.7.? is smart enough to see that
+        # (0, ) is constant and will therefore only create one instance
+        # for this function and use that one for every call. But we want this
+        # tuple to have a different `id` every time because numpy's reducer
+        # is also returning a unique instance every time. The difference
+        # is only three bytes, but we might as well do it right.
+        # This code is sufficiently complicated to stop the compiler
+        # from seeing it as a constant.
+        zero_tuple = ((lambda:0)(), )
+        
+        args = (numpy.ndarray, zero_tuple, 'b')
+        state = (1, obj.shape, obj.dtype, numpy.isfortran(obj), placeholder)
+
+        size = est.save_reduce(reconstruct, args, state=state, obj=obj)
+        return size
     
     # Register
     _picklesize.custom_estimators[numpy.ndarray] = estimate_ndarray
