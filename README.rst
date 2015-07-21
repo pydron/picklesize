@@ -13,7 +13,7 @@ takes time, especially with many small objects. The major advantage is that
 it won't take significant memory. 
 
 `picklesize` has special support for `numpy` arrays to calculate the
-size without the `array` -> `str` -> `file` path of regular pickling that
+size without the `array`->`str`->`file` procedure of regular pickling that
 requires at least two copy operations.
 
 -----
@@ -25,7 +25,7 @@ The API is kept similar to the one of `pickle`::
 	import picklesize
 	nbytes = picklesize.picklesize(obj, protocol=pickle.HIGHEST_PROTOCOL)
 	
-Currently only protocol `2` (better known as `pickle.HIGHEST_PROTOCOL`)
+Currently only protocol `2` (better known as `pickle.HIGHEST_PROTOCOL` )
 is supported.
 
 -----------------------------------
