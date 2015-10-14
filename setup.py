@@ -29,7 +29,7 @@ else:
     long_description = ""
 
 setup(name='picklesize',
-      version='0.1.0',
+      version='0.1.1',
       description='Calculates the pickled size of an object',
       long_description=long_description,
       author='Stefan C. Mueller',
