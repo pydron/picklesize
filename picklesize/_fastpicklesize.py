@@ -17,7 +17,7 @@ class PlaceHolder(object):
     def __repr__(self):
         return "PlaceHolder(%r)" % self.size
 
-class PickleSize(object):
+class FastPickleSize(object):
     
     def picklesize(self, obj, protocol=0):
         
@@ -27,7 +27,7 @@ class PickleSize(object):
             raise ValueError("PickleSize only support pickle protocol 2.")
         self._protocol = protocol
         
-        self._seen = {}
+        self._seen = set()
         
         return 3 + self._traverse(obj)
     
@@ -35,133 +35,57 @@ class PickleSize(object):
     def _traverse(self, obj):
         
         obj_id = id(obj)
-        ref = self._get_memory_ref(obj_id)
-        if ref is not None:
-            return self._encode_int(ref)
-                
+        if obj_id in self._seen:
+            return 0
+        
         obj_type = type(obj)
-        handler = self._handlers.get(obj_type, None)
-        
-        if handler is not None:
-            return handler(self, obj, obj_type, obj_id)
+        handler = self._handlers.get(obj_type, FastPickleSize._Generic)
+        return handler(self, obj, obj_type, obj_id)
 
-        return self._Generic(obj, obj_type, obj_id)
             
-    def _memorize(self, obj, obj_id):
-        assert obj_id not in self._seen
-        
-        ref = len(self._seen)
-        self._seen[obj_id] = ref, obj
-        
-        return self._encode_int(ref)
-    
-    def _get_memory_ref(self, obj_id):
-        ref, obj = self._seen.get(obj_id, (None,None))
-        return ref
-        
     def _encode_int(self, value):
         if value <= 0xFF:
             return 2
         else:
             return 5
         
-    def _IntType(self, value, obj_type, obj_id):
-        if value >= 0:
-            if value <= 0xFF:
-                return 2;
-            elif value <= 0xFFFF:
-                return 3;
-        return 5;
-        
-    def _LongType(self, value, obj_type, obj_id):
-        data = pickle.encode_long(value)
-        n = len(data)
-        if n <= 0xFF:
-            return 2 + n
-        else:
-            return 5 + n
-        
     def _StringType(self, obj, obj_type, obj_id):
-        n = len(obj)
-        if n <= 0xFF:
-            size = 2 + n
-        else:
-            size = 5 + n
-        return size + self._memorize(obj, obj_id)
-
+        self._seen.add(obj_id)
+        return len(obj)
+        
     def _UnicodeType(self, obj, obj_type, obj_id):
-        n = len(obj.encode("utf-8"))
-        return 5 + n + self._memorize(obj, obj_id)
-        
+        self._seen.add(obj_id)
+        return len(obj)
+
     def _TupleType(self, obj, obj_type, obj_id):
-        n = len(obj)
-        if n == 0:
-            return 1
-        
-        if n <= 3:
-            size = sum(self._traverse(e) for e in obj)
-            ref = self._get_memory_ref(obj_id)
-            if ref is not None:
-                # one of the elements already encoded this tuple
-                size += n # n times POP
-                size += self._encode_int(ref) # GET from 'seen'
-            else:
-                # encodes number of elements
-                size += 1
-                size += self._memorize(obj, obj_id)
-            return size
-        
-        size = 1 + sum(self._traverse(e) for e in obj)
-        ref = self._get_memory_ref(obj_id)
-        if ref is not None:
-            # one of the elements already encoded this tuple
-            size += 1 # pop
-            size += self._encode_int(ref) # GET from 'seen'
-        else:
-            size += 1
-            size += self._memorize(obj, obj_id)
-        return size
-    
-    def _ListType(self, obj, obj_type, obj_id):
-        size = 1 + self._memorize(obj, obj_id)
+        self._seen.add(obj_id)
+        s = 0
         for e in obj:
-            size += self._traverse(e)
-        size += self._batch_append_overhead(len(obj))
-        return size
-    
-    def _batch_append_overhead(self, n):
-        batch = pickle.Pickler._BATCHSIZE
-        
-        batchcount = n / batch
-        size = 2*batchcount # MARK and APPENDS
-        
-        reminder = n % batch
-        if reminder == 1:
-            size += 1
-        elif reminder > 1:
-            size += 2
-            
-        return size
-    
+            s += self._traverse(e)
+        return s
+
+    def _ListType(self, obj, obj_type, obj_id):
+        self._seen.add(obj_id)
+        s = 0
+        for e in obj:
+            s += self._traverse(e)
+        return s
+
     def _DictType(self, obj, obj_type, obj_id):
-        size = 1 + self._memorize(obj, obj_id)
+        self._seen.add(obj_id)
+        s = 0
         for k, v in obj.iteritems():
-            size += self._traverse(k) + self._traverse(v)
-        size += self._batch_append_overhead(len(obj))
-        return size
+            s += self._traverse(k) + self._traverse(v)
+        return s
+        #return sum(self._traverse(k) + self._traverse(v) for k, v in obj.iteritems())
             
     def _InstanceType(self, obj, obj_type, obj_id):
+        self._seen.add(obj_id)
             
+        size = 0
         if hasattr(obj, '__getinitargs__'):
-            initargs = obj.__getinitargs__()
-        else:
-            initargs = ()
-
-        size = 1 + self._traverse(obj.__class__)
-        for initarg in initargs:
-            size += self._traverse(initarg)
-            
-        size += 1 + self._memorize(obj, obj_id)
+            for initarg in obj.__getinitargs__():
+                size += self._traverse(initarg)
 
         if hasattr(obj, "__getstate__"):
             attributes = obj.__getstate__()
@@ -169,9 +93,11 @@ class PickleSize(object):
             attributes = obj.__dict__
 
         size += self._traverse(attributes)
-        return size + 1
+        return size
     
     def _ModuleElementType(self, obj, obj_type, obj_id, name=None):
+        self._seen.add(obj_id)
+
         if name is None:
             name = obj.__name__
 
@@ -204,15 +130,10 @@ class PickleSize(object):
                 size = 5
         else:
             size = 3 + len(modulename) + len(name)
-            size += self._memorize(obj, obj_id)
 
         return size
     
-    def _PlaceHolderType(self, obj, obj_type, obj_id):
-        return obj.size
-    
     def _Generic(self, obj, obj_type, obj_id):
-        
         reducer = copy_reg.dispatch_table.get(obj_type)
         if reducer:
             reduced_obj = reducer(obj)
@@ -258,6 +179,8 @@ class PickleSize(object):
         if not hasattr(factory_function, '__call__'):
             raise pickle.PicklingError("func from reduce should be callable")
 
+        size = 0
+
         if getattr(factory_function, "__name__", "") == "__newobj__":
             
             cls = args[0]
@@ -269,32 +192,35 @@ class PickleSize(object):
                     "args[0] from __newobj__ args has the wrong class")
             args = args[1:]
             
-            size = 1
-            size += self._traverse(cls)
-            size += self._traverse(args)
+#             size = 1
+#             size += self._traverse(cls)
+#             size += self._traverse(args)
+            size = self._traverse(args)
         else:
-            size = 0
-            size += self._traverse(factory_function)
+#             size = 0
+#             size += self._traverse(factory_function)
+#             size += 1
             size += self._traverse(args)
-            size += 1
+            
 
         if obj is not None:
-            size += self._memorize(obj, id(obj))
+            self._seen.add(id(obj))
+#             size += self._memorize(obj, id(obj))
 
         if listitems is not None:
             for e in listitems:
                 size += self._traverse(e)
-            size += self._batch_append_overhead(len(listitems))
+#            size += self._batch_append_overhead(len(listitems))
 
         if dictitems is not None:
             for k,v in dictitems.iteritems():
                 size += self._traverse(k)
                 size += self._traverse(v)
-            size += self._batch_append_overhead(len(dictitems))
+#            size += self._batch_append_overhead(len(dictitems))
 
         if state is not None:
             size += self._traverse(state)
-            size += 1
+#            size += 1
             
         return size
 
@@ -302,8 +228,8 @@ class PickleSize(object):
         types.NoneType:lambda self, obj, obj_type, obj_id:1,
         types.TypeType:_ModuleElementType,
         types.BooleanType:lambda self, obj, obj_type, obj_id:1,
-        types.IntType:_IntType,
-        types.LongType:_LongType,
+        types.IntType:lambda self, obj, obj_type, obj_id:4,
+        types.LongType:lambda self, obj, obj_type, obj_id:8,
         types.FloatType:lambda self, obj, obj_type, obj_id:9,
         types.StringType:_StringType,
         types.UnicodeType:_UnicodeType,
@@ -313,11 +239,10 @@ class PickleSize(object):
         types.FunctionType:_ModuleElementType,
         types.ClassType:_ModuleElementType,
         types.InstanceType:_InstanceType,
-        types.BuiltinFunctionType:_ModuleElementType,
-        PlaceHolder:_PlaceHolderType
+        types.BuiltinFunctionType:_ModuleElementType
     }
     
 
-def picklesize(obj, protocol=0):
-    return PickleSize().picklesize(obj, protocol)
+def fastpicklesize(obj, protocol=0):
+    return FastPickleSize().picklesize(obj, protocol)
 

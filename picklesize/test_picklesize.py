@@ -125,6 +125,32 @@ class TestEstimator(unittest.TestCase):
         import numpy as np
         self.compare([np.ones((10,10)), np.ones((10,10))])
 
+    def test_numpy_large(self):
+        import numpy as np
+        self.compare(np.ones(1024*1024))
+        
+    
+
+class TestFast(TestEstimator):
+    
+    def setUp(self):
+        self.target = picklesize.FastPickleSize()
+
+    def compare(self, obj):
+        data = pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
+        expected = len(data)
+        
+        actual = self.target.picklesize(obj, pickle.HIGHEST_PROTOCOL)
+        
+        self.assertLessEqual(actual, 2*expected+100, "Over estimate (%s instead of %s) for %r." % 
+                         (actual, expected, obj))
+        
+        self.assertGreaterEqual(actual, 0.5*expected-100, "Gross under estimate (%s instead of %s) for %r." % 
+                         (actual, expected, obj))
+        
+
+    
+
 class OldStyle_WithAttribs():
     def __init__(self):
         self.a = 12

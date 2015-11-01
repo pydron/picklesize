@@ -1,4 +1,5 @@
-from _picklesize import PickleSize, picklesize, custom_estimators, PlaceHolder
+from _picklesize import PickleSize, picklesize, PlaceHolder
+from _fastpicklesize import fastpicklesize, FastPickleSize
 import _numpysupport
 
-__all__ = ['PickleSize', 'picklesize', 'custom_estimators', 'PlaceHolder']
+__all__ = ['PickleSize', 'picklesize', 'fastpicklesize', 'FastPickleSize']

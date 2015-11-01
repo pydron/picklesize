@@ -1,15 +1,18 @@
 import _picklesize
+from picklesize import _fastpicklesize
 
 try:
     import numpy.core.multiarray
     
+    def fast_estimate_ndarray(est, obj, obj_type, obj_id):
+        est._seen.add(obj_id)
+        return obj.nbytes
 
-    def estimate_ndarray(obj, est):
+    def estimate_ndarray(est, obj, obj_type, obj_id):
         
         # During pickle, the actual data will be stored in a string of
         # `n` bytes.
         n = obj.nbytes
-        
         # The size of this string depends on how pickle encodes the length
         if n <= 0xFF:
             size = 2 + n
@@ -39,11 +42,14 @@ try:
         args = (numpy.ndarray, zero_tuple, 'b')
         state = (1, obj.shape, obj.dtype, numpy.isfortran(obj), placeholder)
 
+        
         size = est.save_reduce(reconstruct, args, state=state, obj=obj)
         return size
     
     # Register
-    _picklesize.custom_estimators[numpy.ndarray] = estimate_ndarray
+    _picklesize.PickleSize._handlers[numpy.ndarray] = estimate_ndarray
+    _fastpicklesize.FastPickleSize._handlers[numpy.ndarray] = fast_estimate_ndarray
+    #_picklesize.custom_estimators[numpy.ndarray] = estimate_ndarray
 
     
 except ImportError:
